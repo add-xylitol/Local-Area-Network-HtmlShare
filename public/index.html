@@ -1,0 +1,446 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>拖拽上传 Axure 导出</title>
+  <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+  <style>
+    :root { color-scheme: light dark; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif; margin: 0; padding: 0; }
+    .container { max-width: 880px; margin: 60px auto; padding: 0 20px; }
+    h1 { font-size: 24px; margin-bottom: 16px; }
+    h2 { font-size: 18px; margin: 40px 0 12px; }
+    p { color: #666; }
+    .dropzone {
+      margin-top: 20px; border: 2px dashed #7b7b7b55; border-radius: 12px; padding: 40px; text-align: center; transition: all .2s; background: #fafafa22;
+    }
+    .dropzone.dragover { border-color: #2f80ed; background: #2f80ed11; }
+    .btn { display: inline-block; padding: 10px 16px; border-radius: 8px; background: #2f80ed; color: #fff; text-decoration: none; border: none; cursor: pointer; }
+    .btn.secondary { background: #4b5563; }
+    .btn.small { padding: 6px 12px; font-size: 13px; margin-right: 8px; }
+    .muted { color: #888; }
+    .links { margin-top: 16px; }
+    .progress { height: 6px; background: #e5e7eb; border-radius: 999px; overflow: hidden; margin-top: 12px; display: none; }
+    .progress > div { height: 100%; width: 0%; background: linear-gradient(90deg, #2f80ed, #6a5acd); transition: width .2s; }
+    .result { margin-top: 24px; display: none; }
+    .result-card { border: 1px solid #e5e7eb55; border-radius: 12px; padding: 16px; background: #f9fafb11; }
+    .result-card h3 { margin: 0 0 12px; font-size: 16px; }
+    .result-card a { word-break: break-all; }
+    .history-actions { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }
+    .history { border: 1px solid #e5e7eb55; border-radius: 10px; padding: 16px; background: #fafafa11; min-height: 80px; }
+    .history table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    .history th, .history td { padding: 10px 12px; border-bottom: 1px solid #e5e7eb55; text-align: left; vertical-align: middle; }
+    .history th { font-weight: 600; color: #374151; }
+    .history tbody tr:hover { background: #2f80ed0f; }
+    .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; background: #e0f2fe; color: #0369a1; font-size: 12px; white-space: nowrap; }
+    .empty { text-align: center; padding: 20px 0; color: #6b7280; }
+    .toast { position: fixed; bottom: 32px; right: 32px; background: #111827ee; color: #f9fafb; padding: 10px 16px; border-radius: 999px; font-size: 13px; display: none; }
+    .link-list { list-style: none; margin: 12px 0 0; padding: 0; }
+    .link-list li { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 8px; font-size: 14px; }
+    .link-list a { word-break: break-all; }
+    @media (max-width: 640px) {
+      .container { margin: 24px auto; }
+      .history table { font-size: 12px; }
+      .history th, .history td { padding: 8px 6px; }
+      .btn.small { margin-bottom: 6px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>上传原型导出（HTML 或 ZIP）</h1>
+    <p class="muted">将 Axure 等原型工具导出的 HTML 文件或打包 ZIP 直接拖入下方区域，或点击选择文件。</p>
+
+    <div id="dropzone" class="dropzone">
+      <p>拖放文件到此，或</p>
+      <div style="display:flex;justify-content:center;gap:12px;flex-wrap:wrap;margin-top:12px;">
+        <button id="pick" class="btn">选择文件</button>
+        <button id="pickFolder" class="btn secondary">选择文件夹</button>
+      </div>
+      <p class="muted">支持 .html、.zip 或整包文件夹，最大 200MB</p>
+      <input id="file" type="file" accept=".html,.zip" style="display:none" />
+      <input id="folder" type="file" webkitdirectory multiple style="display:none" />
+      <div class="progress" id="progress"><div></div></div>
+    </div>
+
+    <div id="result" class="result"></div>
+
+    <h2>已上传原型</h2>
+    <div class="history-actions">
+      <button id="refresh" class="btn secondary small">刷新列表</button>
+    </div>
+    <div id="history" class="history">
+      <p class="empty">暂无上传记录</p>
+    </div>
+  </div>
+
+  <div id="toast" class="toast"></div>
+
+  <script>
+    console.log('Uploader build 2025-10-14-02');
+    const drop = document.getElementById('dropzone');
+    const pick = document.getElementById('pick');
+    const pickFolder = document.getElementById('pickFolder');
+    const input = document.getElementById('file');
+    const folderInput = document.getElementById('folder');
+    const progress = document.getElementById('progress');
+    const bar = progress.firstElementChild;
+    const result = document.getElementById('result');
+    const history = document.getElementById('history');
+    const refreshBtn = document.getElementById('refresh');
+    const toast = document.getElementById('toast');
+    let hostInfoCache = null;
+    let lastSites = [];
+
+    function showToast(message){
+      toast.textContent = message;
+      toast.style.display = 'block';
+      setTimeout(() => {
+        toast.style.display = 'none';
+      }, 2000);
+    }
+
+    function formatDate(dateStr){
+      try {
+        const date = new Date(dateStr);
+        return new Intl.DateTimeFormat('zh-CN', { dateStyle: 'medium', timeStyle: 'short' }).format(date);
+      } catch (err) {
+        return dateStr;
+      }
+    }
+
+    function formatSize(size){
+      if (!size && size !== 0) return '-';
+      if (size < 1024) return size + ' B';
+      if (size < 1024 * 1024) return (size / 1024).toFixed(1) + ' KB';
+      return (size / (1024 * 1024)).toFixed(1) + ' MB';
+    }
+
+    async function copyToClipboard(text){
+      try {
+        await navigator.clipboard.writeText(text);
+        showToast('链接已复制');
+      } catch (err) {
+        const input = document.createElement('input');
+        input.value = text;
+        document.body.appendChild(input);
+        input.select();
+        document.execCommand('copy');
+        document.body.removeChild(input);
+        showToast('链接已复制');
+      }
+    }
+
+    function buildAbsolute(base, relative){
+      try {
+        return new URL(relative, base).href;
+      } catch (err) {
+        const normalizedBase = base.endsWith('/') ? base : base + '/';
+        const normalizedRelative = relative.startsWith('/') ? relative.slice(1) : relative;
+        return normalizedBase + normalizedRelative;
+      }
+    }
+
+    function getShareBases(){
+      const bases = [];
+      const seen = new Set();
+      const append = (label, url) => {
+        if (!url) return;
+        const normalized = url.endsWith('/') ? url : url + '/';
+        if (seen.has(normalized)) return;
+        seen.add(normalized);
+        bases.push({ label, url: normalized });
+      };
+      if (hostInfoCache) {
+        const lan = Array.isArray(hostInfoCache.lanUrls) ? hostInfoCache.lanUrls : [];
+        lan.forEach((item) => {
+          const label = item.interface ? `网卡 ${item.interface}` : '局域网';
+          append(label, item.url);
+        });
+        append('本机', hostInfoCache.localhostUrl);
+      }
+      append('本机', window.location.origin + '/');
+      if (!bases.length) append('本机', window.location.origin + '/');
+      return bases;
+    }
+
+    function buildShareLinks(relative){
+      const bases = getShareBases();
+      const rel = relative || '/';
+      return bases.map((base) => ({
+        label: base.label || '链接',
+        url: buildAbsolute(base.url, rel)
+      }));
+    }
+
+    async function loadHostInfo(){
+      try {
+        const res = await fetch('/api/host-info');
+        if (!res.ok) throw new Error('请求失败');
+        hostInfoCache = await res.json();
+      } catch (err) {
+        hostInfoCache = null;
+      }
+      renderSites(lastSites);
+    }
+
+    function renderSites(items){
+      lastSites = Array.isArray(items) ? items : [];
+      if (!lastSites.length) {
+        history.innerHTML = '<p class="empty">暂无上传记录</p>';
+        return;
+      }
+      const rows = lastSites.map((item) => {
+        const shareLinks = buildShareLinks(item.url);
+        const copyUrl = shareLinks.length ? shareLinks[0].url : buildAbsolute(window.location.origin + '/', item.url);
+        const entryName = item.entryFile || item.primaryHtml || 'index.html';
+        const entry = `<code>${entryName}</code>`;
+        const typeMap = { zip: 'ZIP', html: 'HTML', folder: '文件夹' };
+        const type = typeMap[item.fileType] || (item.fileType ? item.fileType.toUpperCase() : '未知');
+        return `<tr data-slug="${item.slug}">
+          <td><strong>${item.originalName}</strong><div class="muted" style="font-size:12px;">${item.slug}</div></td>
+          <td><span class="pill">${type}</span></td>
+          <td>${entry}</td>
+          <td>${formatDate(item.uploadedAt)}</td>
+          <td>${formatSize(item.size)}</td>
+          <td>
+            <button class="btn small" data-action="open" data-url="${item.url}">打开</button>
+            <button class="btn small secondary" data-action="copy" data-copy="${copyUrl}">复制链接</button>
+            <button class="btn small secondary" data-action="delete" data-slug="${item.slug}">删除</button>
+          </td>
+        </tr>`;
+      }).join('');
+      history.innerHTML = `<div style="overflow-x:auto"><table>
+        <thead>
+          <tr>
+            <th>文件名</th>
+            <th>类型</th>
+            <th>入口</th>
+            <th>上传时间</th>
+            <th>大小</th>
+            <th>操作</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table></div>`;
+    }
+
+    async function loadSites(){
+      history.innerHTML = '<p class="empty">加载中...</p>';
+      try {
+        const res = await fetch('/api/sites');
+        if (!res.ok) throw new Error('请求失败');
+        const data = await res.json();
+        renderSites(data.items || []);
+      } catch (err) {
+        history.innerHTML = '<p class="empty">无法加载记录，请稍后再试。</p>';
+      }
+    }
+
+    async function deleteSite(slug){
+      if (!confirm('确认删除该原型？删除后不可恢复。')) return;
+      try {
+        const res = await fetch(`/api/sites/${slug}`, { method: 'DELETE' });
+        if (!res.ok) throw new Error('删除失败');
+        showToast('已删除');
+        loadSites();
+      } catch (err) {
+        showToast('删除失败');
+      }
+    }
+
+    function resetUI(){
+      progress.style.display = 'none';
+      bar.style.width = '0%';
+      result.style.display = 'none';
+      result.innerHTML = '';
+    }
+
+    function prepareFormData(files){
+      const list = Array.from(files || []).filter(Boolean);
+      if (!list.length) return null;
+
+      const hasRelative = list.some((file) => file.webkitRelativePath && file.webkitRelativePath.includes('/'));
+      const isFolderPayload = hasRelative || list.length > 1;
+
+      const form = new FormData();
+      if (isFolderPayload) {
+        const manifest = [];
+        list.forEach((file) => {
+          const relative = file.webkitRelativePath || file.relativePath || file.name;
+          manifest.push(relative);
+          form.append('files', file, relative);
+        });
+        form.append('manifest', JSON.stringify(manifest));
+        form.append('uploadType', 'folder');
+      } else {
+        form.append('file', list[0], list[0].name);
+      }
+      return form;
+    }
+
+    function onFiles(files){
+      const form = prepareFormData(files);
+      if (!form) return;
+      resetUI();
+
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', '/api/upload');
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable) {
+          const pct = Math.round((e.loaded / e.total) * 100);
+          progress.style.display = 'block';
+          bar.style.width = pct + '%';
+        }
+      };
+      xhr.onload = () => {
+        try {
+          const data = JSON.parse(xhr.responseText || '{}');
+          if (xhr.status >= 200 && xhr.status < 300) {
+            const shareLinks = buildShareLinks(data.url || '/');
+            const finalLinks = shareLinks.length ? shareLinks : [{
+              label: '本机',
+              url: buildAbsolute(window.location.origin + '/', data.url || '/')
+            }];
+            const list = finalLinks.map((item) => `
+              <li>
+                <span class="pill">${item.label}</span>
+                <a href="${item.url}" target="_blank" rel="noopener">${item.url}</a>
+                <button class="btn small secondary" data-copy="${item.url}">复制链接</button>
+              </li>
+            `).join('');
+            result.innerHTML = `
+              <div class="result-card">
+                <h3>上传成功</h3>
+                <p class="muted" style="margin:0;">点击复制按钮，将链接分享给同一网络的同事：</p>
+                <ul class="link-list">${list}</ul>
+              </div>
+            `;
+            result.style.display = 'block';
+            loadSites();
+          } else {
+            result.innerHTML = '<p style="color:#e11d48">上传失败：' + (data.error || '未知错误') + '</p>';
+            result.style.display = 'block';
+          }
+        } catch (e) {
+          result.innerHTML = '<p style="color:#e11d48">上传失败：服务器返回异常</p>';
+          result.style.display = 'block';
+        }
+      };
+      xhr.onerror = () => {
+        result.innerHTML = '<p style="color:#e11d48">网络错误</p>';
+        result.style.display = 'block';
+      };
+      xhr.send(form);
+    }
+
+    async function traverseEntry(entry, path = '') {
+      if (entry.isFile) {
+        return new Promise((resolve) => {
+          entry.file((file) => {
+            const relative = path + file.name;
+            try {
+              Object.defineProperty(file, 'webkitRelativePath', { value: relative, configurable: true });
+            } catch (err) {
+              file.webkitRelativePath = relative;
+            }
+            resolve([file]);
+          });
+        });
+      }
+      if (entry.isDirectory) {
+        const reader = entry.createReader();
+        return new Promise((resolve) => {
+          const results = [];
+          function readBatch() {
+            reader.readEntries(async (entries) => {
+              if (!entries.length) {
+                resolve(results);
+                return;
+              }
+              for (const ent of entries) {
+                const child = await traverseEntry(ent, path + entry.name + '/');
+                results.push(...child);
+              }
+              readBatch();
+            }, () => resolve(results));
+          }
+          readBatch();
+        });
+      }
+      return [];
+    }
+
+    async function collectDroppedFiles(dataTransfer){
+      const items = dataTransfer.items;
+      if (!items || !items.length) {
+        return Array.from(dataTransfer.files || []);
+      }
+      const tasks = [];
+      for (const item of items) {
+        if (item.kind !== 'file') continue;
+        const entry = item.webkitGetAsEntry ? item.webkitGetAsEntry() : null;
+        if (entry) {
+          tasks.push(traverseEntry(entry, ''));
+        } else {
+          const file = item.getAsFile();
+          if (file) tasks.push(Promise.resolve([file]));
+        }
+      }
+      const results = await Promise.all(tasks);
+      return results.flat();
+    }
+
+    ['dragenter', 'dragover'].forEach((evt) => drop.addEventListener(evt, (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      drop.classList.add('dragover');
+    }));
+    ['dragleave', 'drop'].forEach((evt) => drop.addEventListener(evt, (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      drop.classList.remove('dragover');
+    }));
+    drop.addEventListener('drop', async (e) => {
+      const files = await collectDroppedFiles(e.dataTransfer);
+      onFiles(files);
+    });
+
+    pick.addEventListener('click', () => input.click());
+    pickFolder.addEventListener('click', () => folderInput.click());
+    input.addEventListener('change', () => onFiles(input.files));
+    folderInput.addEventListener('change', () => onFiles(folderInput.files));
+
+    refreshBtn.addEventListener('click', loadSites);
+    history.addEventListener('click', (event) => {
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) return;
+      const action = target.dataset.action;
+      if (!action) return;
+      if (action === 'open') {
+        const url = target.dataset.url;
+        if (url) window.open(url, '_blank');
+      } else if (action === 'copy') {
+        const value = target.dataset.copy;
+        if (value) copyToClipboard(value);
+      } else if (action === 'delete') {
+        const slug = target.dataset.slug;
+        if (slug) deleteSite(slug);
+      }
+    });
+
+    result.addEventListener('click', (event) => {
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) return;
+      const copyValue = target.dataset.copy;
+      if (copyValue) {
+        copyToClipboard(copyValue);
+      }
+    });
+
+    loadHostInfo();
+    loadSites();
+  </script>
+</body>
+</html>

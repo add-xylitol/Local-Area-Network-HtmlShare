@@ -1,0 +1,6 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<svg version="1.1" xmlns:xlink="http://www.w3.org/1999/xlink" width="12px" height="12px" viewBox="1963 1487 12 12" xmlns="http://www.w3.org/2000/svg">
+  <path d="M 1969 1487  C 1972.36 1487  1975 1489.64  1975 1493  C 1975 1496.36  1972.36 1499  1969 1499  C 1965.64 1499  1963 1496.36  1963 1493  C 1963 1489.64  1965.64 1487  1969 1487  Z " fill-rule="nonzero" fill="rgba(240, 240, 240, 1)" stroke="none" class="fill" />
+  <path d="M 1969 1487.5  C 1972.08 1487.5  1974.5 1489.92  1974.5 1493  C 1974.5 1496.08  1972.08 1498.5  1969 1498.5  C 1965.92 1498.5  1963.5 1496.08  1963.5 1493  C 1963.5 1489.92  1965.92 1487.5  1969 1487.5  Z " stroke-width="1" stroke-dasharray="0" stroke="rgba(121, 121, 121, 1)" fill="none" class="stroke" stroke-dashoffset="0.5" />
+  <path d="M 1969 1496  C 1967.32 1496  1966 1494.68  1966 1493  C 1966 1491.32  1967.32 1490  1969 1490  C 1970.68 1490  1972 1491.32  1972 1493  C 1972 1494.68  1970.68 1496  1969 1496  " fill-rule="nonzero" fill="rgba(121, 121, 121, 1)" stroke="none" class="stroke btn_check" />
+</svg>

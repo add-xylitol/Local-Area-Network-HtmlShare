@@ -1,0 +1,12 @@
+node_modules/
+dist/
+data/
+logs/
+uploads/
+sites/
+dataprocess/
+*.log
+*.zip
+*.rp
+server.pid
+.DS_Store

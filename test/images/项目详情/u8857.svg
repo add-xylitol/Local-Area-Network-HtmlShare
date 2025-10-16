@@ -1,0 +1,13 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<svg version="1.1" xmlns:xlink="http://www.w3.org/1999/xlink" width="6px" height="6px" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <pattern id="BGPattern" patternUnits="userSpaceOnUse" alignment="0 0" imageRepeat="None" />
+    <mask fill="white" id="Clip634">
+      <path d="M 0.4996040885547197 4.3484661612364235  L 4.354058496240601 0.5114572974101923  L 5.50313281871345 1.6657564686716788  L 1.64866739849624 5.5027543416875515  L 0.4996040885547197 4.3484661612364235  Z " fill-rule="evenodd" />
+    </mask>
+  </defs>
+  <g transform="matrix(1 0 0 1 -235 -445 )">
+    <path d="M 0.4996040885547197 4.3484661612364235  L 4.354058496240601 0.5114572974101923  L 5.50313281871345 1.6657564686716788  L 1.64866739849624 5.5027543416875515  L 0.4996040885547197 4.3484661612364235  Z " fill-rule="nonzero" fill="rgba(242, 242, 242, 1)" stroke="none" transform="matrix(1 0 0 1 235 445 )" class="fill" />
+    <path d="M 0.4996040885547197 4.3484661612364235  L 4.354058496240601 0.5114572974101923  L 5.50313281871345 1.6657564686716788  L 1.64866739849624 5.5027543416875515  L 0.4996040885547197 4.3484661612364235  Z " stroke-width="0" stroke-dasharray="0" stroke="rgba(255, 255, 255, 0)" fill="none" transform="matrix(1 0 0 1 235 445 )" class="stroke" mask="url(#Clip634)" />
+  </g>
+</svg>
