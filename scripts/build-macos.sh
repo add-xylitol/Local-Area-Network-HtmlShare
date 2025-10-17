@@ -4,52 +4,96 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DIST="$ROOT/dist"
-BIN_DIR="$DIST/bin"
 RELEASE_DIR="$DIST/release"
 PUBLIC_SRC="$ROOT/public"
 START_SCRIPT="$ROOT/AxureShare.command"
 STOP_SCRIPT="$ROOT/StopAxureShare.command"
 README_SRC="$ROOT/README.md"
 
-TARGETS=("node18-macos-arm64" "node18-macos-x64")
+NODE_VERSION="18.20.3"
+NODE_BASE_URL="https://nodejs.org/dist/v${NODE_VERSION}"
+ARM64_TAR="node-v${NODE_VERSION}-darwin-arm64.tar.gz"
+X64_TAR="node-v${NODE_VERSION}-darwin-x64.tar.gz"
+
+download_node() {
+  local tarball="$1"
+  local url="$2"
+  local cache_dir="$ROOT/.cache"
+  local cache_path="$cache_dir/$tarball"
+
+  mkdir -p "$cache_dir"
+  if [ -f "$cache_path" ]; then
+    printf "使用缓存的 Node 包：%s\n" "$tarball" >&2
+  else
+    printf "下载 Node：%s\n" "$tarball" >&2
+    curl -L --fail --retry 3 --retry-delay 2 "$url" -o "$cache_path"
+  fi
+  echo "$cache_path"
+}
+
+copy_project_files() {
+  local dest="$1"
+  mkdir -p "$dest"
+
+  rsync -a "$PUBLIC_SRC/" "$dest/public/"
+  cp "$ROOT/server.js" "$dest/server.js"
+  cp "$ROOT/package.json" "$dest/package.json"
+  cp "$ROOT/package-lock.json" "$dest/package-lock.json"
+  cp "$START_SCRIPT" "$dest/AxureShare.command"
+  cp "$STOP_SCRIPT" "$dest/StopAxureShare.command"
+  cp "$README_SRC" "$dest/README.md"
+  chmod +x "$dest/AxureShare.command" "$dest/StopAxureShare.command"
+
+  mkdir -p "$dest/data/uploads" "$dest/data/sites" "$dest/logs"
+}
+
+install_dependencies() {
+  local dest="$1"
+  echo "安装 production 依赖..."
+  (cd "$dest" && PATH="$dest/node/bin:$PATH" npm install --production --no-audit --no-fund --loglevel=error)
+}
+
+cleanup_node_bundle() {
+  local dest="$1"
+  rm -rf "$dest/node/lib/node_modules/npm/docs" \
+         "$dest/node/lib/node_modules/npm/html" \
+         "$dest/node/lib/node_modules/npm/man"
+  chmod +x "$dest/node/bin/"*
+}
+
+prepare_bundle() {
+  local label="$1"
+  local tarball_path="$2"
+  local arch="$3"
+  local dest="$RELEASE_DIR/AxureShare-${label}"
+  local node_dir="node-v${NODE_VERSION}-darwin-${arch}"
+
+  echo "=== 构建 $label 发布包 ==="
+  rm -rf "$dest"
+  mkdir -p "$dest"
+
+  copy_project_files "$dest"
+
+  echo "解压 Node..."
+  tar -xzf "$tarball_path" -C "$dest"
+  mv "$dest/$node_dir" "$dest/node"
+
+  install_dependencies "$dest"
+  cleanup_node_bundle "$dest"
+
+  (cd "$dest" && find . -name "*.DS_Store" -delete)
+
+  (cd "$RELEASE_DIR" && zip -qry "AxureShare-${label}.zip" "AxureShare-${label}")
+}
 
 echo "清理 dist 目录..."
 rm -rf "$DIST"
-mkdir -p "$BIN_DIR" "$RELEASE_DIR"
+mkdir -p "$RELEASE_DIR"
 
-echo "构建可执行文件..."
-for target in "${TARGETS[@]}"; do
-  ARCH="${target#node18-}"
-  OUTPUT="$BIN_DIR/axure-share-${ARCH}"
-  echo "  -> $target"
-  npx pkg "$ROOT/server.js" --targets "$target" --output "$OUTPUT"
-  chmod +x "$OUTPUT"
-done
+ARM64_PATH="$(download_node "$ARM64_TAR" "$NODE_BASE_URL/$ARM64_TAR")"
+X64_PATH="$(download_node "$X64_TAR" "$NODE_BASE_URL/$X64_TAR")"
 
-copy_release_assets() {
-  local dest_dir="$1"
-  mkdir -p "$dest_dir"
-  rsync -a "$PUBLIC_SRC/" "$dest_dir/public/"
-  mkdir -p "$dest_dir/data/uploads" "$dest_dir/data/sites" "$dest_dir/logs"
-  cp "$START_SCRIPT" "$dest_dir/AxureShare.command"
-  cp "$STOP_SCRIPT" "$dest_dir/StopAxureShare.command"
-  chmod +x "$dest_dir/AxureShare.command" "$dest_dir/StopAxureShare.command"
-  cp "$README_SRC" "$dest_dir/README.md"
-}
+prepare_bundle "macOS-arm64" "$ARM64_PATH" "arm64"
+prepare_bundle "macOS-x64" "$X64_PATH" "x64"
 
-echo "整理发布包..."
-for target in "${TARGETS[@]}"; do
-  ARCH="${target#node18-}"
-  case "$ARCH" in
-    macos-arm64) LABEL="macOS-arm64" ;;
-    macos-x64) LABEL="macOS-x64" ;;
-    *) LABEL="$ARCH" ;;
-  esac
-  DEST="$RELEASE_DIR/AxureShare-${LABEL}"
-  copy_release_assets "$DEST"
-  cp "$BIN_DIR/axure-share-${ARCH}" "$DEST/axure-share"
-  chmod +x "$DEST/axure-share"
-  (cd "$RELEASE_DIR" && zip -qry "AxureShare-${LABEL}.zip" "AxureShare-${LABEL}")
-done
-
-echo "完成。发布包位于 $RELEASE_DIR"
+echo "完成。发布包位于 $DIST"

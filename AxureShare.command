@@ -10,6 +10,8 @@ LOG_FILE="$LOG_DIR/axure-share.log"
 PID_FILE="$DIR/server.pid"
 PORT="${PORT:-3000}"
 EXECUTABLE="$DIR/axure-share"
+NODE_BIN="$DIR/node/bin/node"
+NPM_BIN="$DIR/node/bin/npm"
 
 mkdir -p "$LOG_DIR"
 
@@ -20,7 +22,12 @@ require_command() {
   fi
 }
 
-if [ ! -x "$EXECUTABLE" ]; then
+NODE_BUNDLE_AVAILABLE=false
+if [ -x "$NODE_BIN" ]; then
+  NODE_BUNDLE_AVAILABLE=true
+fi
+
+if [ ! -x "$EXECUTABLE" ] && [ "$NODE_BUNDLE_AVAILABLE" = false ]; then
   require_command node
   require_command npm
 fi
@@ -45,12 +52,25 @@ if [ -x "$EXECUTABLE" ]; then
   echo "检测到独立可执行文件，直接启动..."
   START_CMD=("$EXECUTABLE")
 else
-  if [ ! -d "$DIR/node_modules" ]; then
-    echo "安装依赖..."
-    npm install --production
-  fi
   START_ENV+=("NODE_ENV=production")
-  START_CMD=("node" "$DIR/server.js")
+  if [ "$NODE_BUNDLE_AVAILABLE" = true ]; then
+    if [ ! -d "$DIR/node_modules" ]; then
+      if [ -x "$NPM_BIN" ]; then
+        echo "安装依赖..."
+        "$NPM_BIN" install --production
+      else
+        echo "未找到 npm，可访问 https://nodejs.org/ 安装或使用系统 Node.js。"
+        exit 1
+      fi
+    fi
+    START_CMD=("$NODE_BIN" "$DIR/server.js")
+  else
+    if [ ! -d "$DIR/node_modules" ]; then
+      echo "安装依赖..."
+      npm install --production
+    fi
+    START_CMD=("node" "$DIR/server.js")
+  fi
 fi
 
 echo "启动服务..."
