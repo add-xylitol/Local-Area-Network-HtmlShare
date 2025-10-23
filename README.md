@@ -29,21 +29,21 @@
 ## 给研发同学：如何构建安装包
 
 1. 安装依赖：`npm install`  
-2. 构建发布物：`npm run build:mac`  
-3. 产物位置：`dist/release/` 下会生成两种架构的文件夹及 ZIP。将对应 ZIP 发给产品经理即可。  
+2. 构建发布物：`npm run build:all`（或按需分别运行 `npm run build:mac` / `npm run build:windows`）  
+3. 产物位置：`dist/release/` 下会生成 macOS 双架构与 Windows x64 的文件夹及 ZIP。将对应 ZIP 发给产品经理即可。  
    - 每个包内含：  
      - 独立可执行文件 `axure-share`（无需额外安装 Node.js）  
      - 双击启动/停止脚本  
      - `public/` 前端资源（包含 `icon.svg`）与 `data/` 目录（默认保存上传文件）
 
-**数据目录**：在独立包内运行时，所有上传内容存放在 `data/sites/`，临时文件在 `data/uploads/`，方便随时备份或清理。
+**数据目录**：独立包运行时会自动将数据保存到系统用户目录中：macOS 位于 `~/Library/Application Support/AxureShare/`，Windows 位于 `%LOCALAPPDATA%\AxureShare\`。该目录下包含 `sites/`（对外分享的静态文件）与 `uploads/`（上传缓存），更新安装包后历史记录仍会保留。开发模式下仍默认写入仓库根目录的 `data/`，也可以通过环境变量 `AXURE_SHARE_DATA_DIR` 覆盖。
 
 ---
 
 ## 发布到 GitHub
 
 1. 将整个项目推送到 GitHub 仓库（建议保持主分支包含 `public/`, `server.js`, `.command` 脚本、`scripts/` 等文件）。  
-2. 在本地运行 `npm run build:mac`，确认 `dist/release/` 下生成 `AxureShare-macOS-arm64.zip` 和 `AxureShare-macOS-x64.zip`。  
+2. 在本地运行 `npm run build:all`，确认 `dist/release/` 下生成 `AxureShare-macOS-arm64.zip`、`AxureShare-macOS-x64.zip` 与 `AxureShare-windows-x64.zip`。  
 3. 在 GitHub 创建新的 Release：  
    - 填写版本号及更新说明。  
    - 上传两个 ZIP 包作为二进制附件。  

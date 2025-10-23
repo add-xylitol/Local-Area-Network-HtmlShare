@@ -10,9 +10,45 @@ const os = require('os');
 const app = express();
 const PORT = process.env.PORT || 3000;
 const ROOT_DIR = process.pkg ? path.dirname(process.execPath) : __dirname;
-const DATA_DIR = process.env.AXURE_SHARE_DATA_DIR
-  ? path.resolve(process.env.AXURE_SHARE_DATA_DIR)
-  : path.join(ROOT_DIR, 'data');
+const APP_SUPPORT_NAME = 'AxureShare';
+
+function resolvePlatformDataDir() {
+  const override = process.env.AXURE_SHARE_DATA_DIR;
+  if (override) {
+    try {
+      return path.resolve(override);
+    } catch (err) {
+      console.warn('无法解析 AXURE_SHARE_DATA_DIR:', override, err);
+    }
+  }
+  const home = os.homedir && os.homedir();
+  if (!home) return null;
+  if (process.platform === 'win32') {
+    const base =
+      process.env.LOCALAPPDATA ||
+      process.env.APPDATA ||
+      path.join(home, 'AppData', 'Local');
+    return path.join(base, APP_SUPPORT_NAME);
+  }
+  if (process.platform === 'darwin') {
+    return path.join(home, 'Library', 'Application Support', APP_SUPPORT_NAME);
+  }
+  const base = process.env.XDG_DATA_HOME || path.join(home, '.local', 'share');
+  return path.join(base, APP_SUPPORT_NAME);
+}
+
+const defaultDataDir = () => {
+  if (process.env.AXURE_SHARE_DATA_DIR) {
+    return path.resolve(process.env.AXURE_SHARE_DATA_DIR);
+  }
+  if (process.pkg) {
+    const platformDir = resolvePlatformDataDir();
+    if (platformDir) return platformDir;
+  }
+  return path.join(ROOT_DIR, 'data');
+};
+
+const DATA_DIR = defaultDataDir();
 const PUBLIC_DIR_CANDIDATES = [
   path.join(ROOT_DIR, 'public'),
   path.join(__dirname, 'public')
@@ -28,6 +64,8 @@ console.log('[Axure Preview Service] data dir:', DATA_DIR);
 const UPLOAD_DIR = path.join(DATA_DIR, 'uploads');
 const SITES_DIR = path.join(DATA_DIR, 'sites');
 const META_FILE = 'meta.json';
+const HISTORY_FILE = path.join(DATA_DIR, 'history.json');
+const LEGACY_DATA_DIR = path.join(ROOT_DIR, 'data');
 const LEGACY_UPLOAD_DIR = path.join(ROOT_DIR, 'uploads');
 const LEGACY_SITES_DIR = path.join(ROOT_DIR, 'sites');
 
@@ -36,29 +74,194 @@ const LEGACY_SITES_DIR = path.join(ROOT_DIR, 'sites');
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 });
 
+function moveOrCopy(fromPath, toPath) {
+  try {
+    fs.renameSync(fromPath, toPath);
+    return true;
+  } catch (err) {
+    try {
+      fs.cpSync(fromPath, toPath, { recursive: true });
+      fs.rmSync(fromPath, { recursive: true, force: true });
+      return true;
+    } catch (err2) {
+      console.warn('Failed to migrate item', fromPath, '->', toPath, err2);
+      return false;
+    }
+  }
+}
+
 function migrateLegacyDir(fromDir, toDir) {
   if (!fs.existsSync(fromDir)) return;
   try {
+    ensureDir(toDir);
     const legacyItems = fs.readdirSync(fromDir);
     if (!legacyItems.length) return;
-    const targetItems = fs.existsSync(toDir) ? fs.readdirSync(toDir) : [];
-    if (targetItems.length) return;
+    let movedAny = false;
     legacyItems.forEach((name) => {
       const fromPath = path.join(fromDir, name);
       const toPath = path.join(toDir, name);
-      fs.renameSync(fromPath, toPath);
+      if (fs.existsSync(toPath)) return;
+      if (moveOrCopy(fromPath, toPath)) movedAny = true;
     });
-    try {
-      fs.rmSync(fromDir, { recursive: true, force: true });
-    } catch {}
-    console.log(`Migrated legacy directory ${fromDir} -> ${toDir}`);
+    const leftovers = fs.readdirSync(fromDir);
+    if (!leftovers.length) {
+      try {
+        fs.rmSync(fromDir, { recursive: true, force: true });
+      } catch {}
+    }
+    if (movedAny) {
+      console.log(`Migrated legacy directory ${fromDir} -> ${toDir}`);
+    }
   } catch (err) {
     console.warn('Failed to migrate legacy directory', fromDir, err);
   }
 }
 
-migrateLegacyDir(LEGACY_UPLOAD_DIR, UPLOAD_DIR);
-migrateLegacyDir(LEGACY_SITES_DIR, SITES_DIR);
+function migrateLegacyDataRoot() {
+  const candidateDirs = [LEGACY_UPLOAD_DIR, LEGACY_SITES_DIR];
+  const baseExists = fs.existsSync(LEGACY_DATA_DIR);
+  if (!baseExists && !candidateDirs.some((dir) => fs.existsSync(dir))) return;
+
+  if (path.resolve(LEGACY_DATA_DIR) === path.resolve(DATA_DIR)) return;
+
+  try {
+    if (baseExists) {
+      const subdirs = fs.readdirSync(LEGACY_DATA_DIR);
+      subdirs.forEach((name) => {
+        const fromPath = path.join(LEGACY_DATA_DIR, name);
+        const toPath = path.join(DATA_DIR, name);
+        if (fs.existsSync(toPath)) return;
+        moveOrCopy(fromPath, toPath);
+      });
+    }
+    candidateDirs.forEach((dir) => migrateLegacyDir(dir, dir.includes('upload') ? UPLOAD_DIR : SITES_DIR));
+  } catch (err) {
+    console.warn('Failed to migrate legacy data root', err);
+  }
+
+  try {
+    const remaining = fs.existsSync(LEGACY_DATA_DIR) ? fs.readdirSync(LEGACY_DATA_DIR) : [];
+    if (!remaining.length) {
+      fs.rmSync(LEGACY_DATA_DIR, { recursive: true, force: true });
+    }
+  } catch {}
+}
+
+migrateLegacyDataRoot();
+
+let historyCache = null;
+
+function normalizeHistoryEntry(meta) {
+  if (!meta || !meta.slug) return null;
+  const slug = meta.slug;
+  const uploadedAt = meta.uploadedAt || null;
+  const entryFile = meta.entryFile || meta.primaryHtml || 'index.html';
+  const size = Number.isFinite(meta.size) ? meta.size : null;
+  return {
+    slug,
+    url: meta.url || `/sites/${slug}/`,
+    originalName: meta.originalName || slug,
+    uploadedAt: uploadedAt || null,
+    fileType: meta.fileType || 'unknown',
+    entryFile,
+    primaryHtml: meta.primaryHtml || null,
+    size
+  };
+}
+
+function loadHistoryCache() {
+  if (historyCache) return historyCache;
+  let items = [];
+  if (fs.existsSync(HISTORY_FILE)) {
+    try {
+      const raw = fs.readFileSync(HISTORY_FILE, 'utf8');
+      const parsed = JSON.parse(raw);
+      if (parsed && Array.isArray(parsed.items)) {
+        items = parsed.items
+          .map((entry) => normalizeHistoryEntry(entry))
+          .filter(Boolean)
+          .map((entry) => ({
+            ...entry,
+            uploadedAt: entry.uploadedAt || null
+          }));
+      }
+    } catch (err) {
+      console.warn('Failed to load history file, will recreate', err);
+    }
+  }
+  historyCache = { items };
+  return historyCache;
+}
+
+function saveHistoryCache() {
+  if (!historyCache) return;
+  try {
+    ensureDir(path.dirname(HISTORY_FILE));
+    const payload = {
+      version: 1,
+      items: historyCache.items
+        .slice()
+        .sort((a, b) => {
+          const ta = a.uploadedAt ? new Date(a.uploadedAt).valueOf() : 0;
+          const tb = b.uploadedAt ? new Date(b.uploadedAt).valueOf() : 0;
+          return tb - ta;
+        })
+    };
+    fs.writeFileSync(HISTORY_FILE, JSON.stringify(payload, null, 2), 'utf8');
+  } catch (err) {
+    console.warn('Failed to persist history file', err);
+  }
+}
+
+function upsertHistoryEntry(meta) {
+  const entry = normalizeHistoryEntry(meta);
+  if (!entry) return;
+  const cache = loadHistoryCache();
+  const idx = cache.items.findIndex((item) => item.slug === entry.slug);
+  if (idx >= 0) {
+    const existing = cache.items[idx];
+    const next = {
+      ...existing,
+      ...entry
+    };
+    if (!entry.uploadedAt && existing.uploadedAt) {
+      next.uploadedAt = existing.uploadedAt;
+    }
+    if (!Number.isFinite(entry.size) && Number.isFinite(existing.size)) {
+      next.size = existing.size;
+    }
+    cache.items[idx] = next;
+  } else {
+    cache.items.push(entry);
+  }
+  saveHistoryCache();
+}
+
+function removeHistoryEntry(slug) {
+  if (!slug) return;
+  const cache = loadHistoryCache();
+  const next = cache.items.filter((item) => item.slug !== slug);
+  if (next.length === cache.items.length) return;
+  cache.items = next;
+  saveHistoryCache();
+}
+
+function pruneHistoryEntries(validSlugs) {
+  const cache = loadHistoryCache();
+  const filtered = cache.items.filter((item) => validSlugs.has(item.slug));
+  if (filtered.length === cache.items.length) return;
+  cache.items = filtered;
+  saveHistoryCache();
+}
+
+function getHistoryIndex() {
+  const cache = loadHistoryCache();
+  const map = new Map();
+  cache.items.forEach((item) => {
+    map.set(item.slug, item);
+  });
+  return map;
+}
 
 app.use(cors());
 app.use(express.json());
@@ -337,6 +540,7 @@ app.post('/api/upload', upload.any(), async (req, res) => {
     if (primaryHtml) metadata.primaryHtml = primaryHtml;
     metadata.entryFile = entryFile;
     writeSiteMeta(sitePath, metadata);
+    upsertHistoryEntry(metadata);
 
     // Return URL
     const url = `/sites/${slug}/`;
@@ -389,10 +593,16 @@ app.get('/api/host-info', (req, res) => {
 
 app.get('/api/sites', (req, res) => {
   try {
-    const sites = listSiteDirs().map((slug) => {
+    const slugs = listSiteDirs();
+    const valid = new Set(slugs);
+    pruneHistoryEntries(valid);
+    const historyIndex = getHistoryIndex();
+    const sites = slugs.map((slug) => {
       const siteDir = path.join(SITES_DIR, slug);
       const meta = readSiteMeta(siteDir) || {};
-      let uploadedAt = meta.uploadedAt;
+      const historyEntry = historyIndex.get(slug) || null;
+
+      let uploadedAt = meta.uploadedAt || (historyEntry && historyEntry.uploadedAt) || null;
       if (!uploadedAt) {
         try {
           const stat = fs.statSync(siteDir);
@@ -401,15 +611,39 @@ app.get('/api/sites', (req, res) => {
           uploadedAt = new Date().toISOString();
         }
       }
-      return {
+
+      const historySize = historyEntry && Number.isFinite(historyEntry.size) ? historyEntry.size : null;
+      const entryFile = meta.entryFile || meta.primaryHtml || (historyEntry && (historyEntry.entryFile || historyEntry.primaryHtml)) || 'index.html';
+      const record = {
         slug,
-        url: `/sites/${slug}/`,
-        originalName: meta.originalName || slug,
-        fileType: meta.fileType || 'unknown',
+        url: meta.url || (historyEntry && historyEntry.url) || `/sites/${slug}/`,
+        originalName: meta.originalName || (historyEntry && historyEntry.originalName) || slug,
+        fileType: meta.fileType || (historyEntry && historyEntry.fileType) || 'unknown',
         uploadedAt,
-        size: meta.size ?? null,
-        primaryHtml: meta.primaryHtml || null
+        size: Number.isFinite(meta.size) ? meta.size : historySize,
+        primaryHtml: meta.primaryHtml || (historyEntry && historyEntry.primaryHtml) || null,
+        entryFile
       };
+
+      const historyUploadedAt = historyEntry ? (historyEntry.uploadedAt || null) : null;
+      const uploadedAtComparable = record.uploadedAt || null;
+      const historySizeComparable = historySize;
+      const recordSizeComparable = Number.isFinite(record.size) ? record.size : null;
+
+      const needsHistoryUpdate = !historyEntry ||
+        (historyEntry.originalName || null) !== record.originalName ||
+        (historyEntry.fileType || null) !== record.fileType ||
+        (historyEntry.entryFile || 'index.html') !== record.entryFile ||
+        (historyEntry.primaryHtml || null) !== (record.primaryHtml || null) ||
+        historyUploadedAt !== uploadedAtComparable ||
+        historySizeComparable !== recordSizeComparable ||
+        (historyEntry.url || `/sites/${slug}/`) !== record.url;
+
+      if (needsHistoryUpdate) {
+        upsertHistoryEntry(record);
+      }
+
+      return record;
     }).sort((a, b) => {
       return new Date(b.uploadedAt).valueOf() - new Date(a.uploadedAt).valueOf();
     });
@@ -431,6 +665,7 @@ app.delete('/api/sites/:slug', (req, res) => {
   }
   try {
     fs.rmSync(target, { recursive: true, force: true });
+    removeHistoryEntry(slug);
     res.json({ ok: true });
   } catch (err) {
     console.error(err);

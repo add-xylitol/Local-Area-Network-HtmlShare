@@ -44,13 +44,11 @@ copy_project_files() {
   cp "$README_SRC" "$dest/README.md"
   chmod +x "$dest/AxureShare.command" "$dest/StopAxureShare.command"
 
-  mkdir -p "$dest/data/uploads" "$dest/data/sites" "$dest/logs"
-}
+  if [ -d "$ROOT/node_modules" ]; then
+    rsync -a "$ROOT/node_modules/" "$dest/node_modules/"
+  fi
 
-install_dependencies() {
-  local dest="$1"
-  echo "安装 production 依赖..."
-  (cd "$dest" && PATH="$dest/node/bin:$PATH" npm install --production --no-audit --no-fund --loglevel=error)
+  mkdir -p "$dest/data/uploads" "$dest/data/sites" "$dest/logs"
 }
 
 cleanup_node_bundle() {
@@ -78,7 +76,6 @@ prepare_bundle() {
   tar -xzf "$tarball_path" -C "$dest"
   mv "$dest/$node_dir" "$dest/node"
 
-  install_dependencies "$dest"
   cleanup_node_bundle "$dest"
 
   (cd "$dest" && find . -name "*.DS_Store" -delete)
@@ -86,9 +83,13 @@ prepare_bundle() {
   (cd "$RELEASE_DIR" && zip -qry "AxureShare-${label}.zip" "AxureShare-${label}")
 }
 
-echo "清理 dist 目录..."
-rm -rf "$DIST"
+echo "准备 dist 目录..."
 mkdir -p "$RELEASE_DIR"
+rm -rf \
+  "$RELEASE_DIR/AxureShare-macOS-arm64" \
+  "$RELEASE_DIR/AxureShare-macOS-arm64.zip" \
+  "$RELEASE_DIR/AxureShare-macOS-x64" \
+  "$RELEASE_DIR/AxureShare-macOS-x64.zip"
 
 ARM64_PATH="$(download_node "$ARM64_TAR" "$NODE_BASE_URL/$ARM64_TAR")"
 X64_PATH="$(download_node "$X64_TAR" "$NODE_BASE_URL/$X64_TAR")"

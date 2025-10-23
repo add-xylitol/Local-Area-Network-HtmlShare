@@ -15,6 +15,21 @@ NPM_BIN="$DIR/node/bin/npm"
 
 mkdir -p "$LOG_DIR"
 
+APP_NAME="AxureShare"
+if [ -n "${AXURE_SHARE_DATA_DIR:-}" ]; then
+  DATA_DIR_OVERRIDE="$AXURE_SHARE_DATA_DIR"
+else
+  if [[ "$OSTYPE" == "darwin"* ]]; then
+    DATA_DIR_OVERRIDE="$HOME/Library/Application Support/$APP_NAME"
+  else
+    DATA_DIR_OVERRIDE="$HOME/.local/share/$APP_NAME"
+  fi
+fi
+
+mkdir -p "$DATA_DIR_OVERRIDE"
+export AXURE_SHARE_DATA_DIR="$DATA_DIR_OVERRIDE"
+echo "数据目录：$AXURE_SHARE_DATA_DIR"
+
 require_command() {
   if ! command -v "$1" >/dev/null 2>&1; then
     echo "缺少命令：$1，请先安装 Node.js（包含 npm）。"
